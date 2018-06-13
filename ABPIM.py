@@ -56,23 +56,13 @@ print("Word2vc matrix len is : ",len(embeddings_index))
 print("Embedding size is: ", emb_size)
 
 
+def Word2Vec_score(Question, Q_term_list, PMI_vals, IDF_Mat, Corpus, IDF, Justification_threshold):
 
-
-
-def Word2Vec_score(Question, Q_term_list, IDF_Mat, Corpus, IDF, Justification_threshold):
-
-    Doc_Score=[0]
-
-
-    max_score=0
-    min_score=0
-    #Ques_score=[]
     Justification_set=[]
     Document_score=[[0] for i in range(len(Question))]
     Alignment_score = [[0] for i in range(len(Question))]
     BM25_scores = [] # [[0] for i in range(len(Question))]
-    #SCORES=[]
-
+    PMI_scores = [[0] for i in range(len(Question))]
 
     for Jind, Justifications in enumerate(Corpus):
 
@@ -97,11 +87,26 @@ def Word2Vec_score(Question, Q_term_list, IDF_Mat, Corpus, IDF, Justification_th
                 BM25_set.append(dict1["AggregatedJustification"]["score"])
 
         BM25_scores.append(BM25_set)
+        max_PMI = [[0] for i in range(len(Q_terms_list[Jind]))]
+
         for just_ind, just1 in enumerate(Justification_set):
             Doc_set = tokenizer.tokenize(just1)
             # Doc_set=list(set(Doc_set))
             Doc_set = [lmtzr.lemmatize(w1) for w1 in Doc_set]
             Doc_set = [w for w in Doc_set if not w in stop_words]
+
+            ## Calculating PMI scores here, we have justification terms from above and we have query terms from Q_term_list[Jind]
+
+            for tind1, term in enumerate(Q_terms_list[Jind]):
+                term_PMI = []
+                for tj1 in Doc_set:
+                    try:
+                       term_PMI.append(float(PMI_vals[term + " " + tj1]))
+                    except KeyError:
+                       pass
+                if len(term_PMI)>0:
+                   max_PMI[tind1].append(max(term_PMI))
+
 
             Doc_Matrix = np.empty((0, emb_size), float)  ####################### DIMENSION of EMBEDDING
             Doc_len=0
@@ -134,17 +139,7 @@ def Word2Vec_score(Question, Q_term_list, IDF_Mat, Corpus, IDF, Justification_th
                         max_list.append(Doc_set[mind1])
                     else:
                         Doc_IDF_Mat = np.append(Doc_IDF_Mat, np.array([[5.379046132954042]]), axis=0)
-                #### term frequency of query terms in the doc.
-                for t1 in Q_terms_list[Jind]:
-                    if t1 in Doc_set:
-                        # print ("yes w")
-                        Q_term_Mat = np.append(Q_term_Mat, np.array([[Doc_set.count(t1)]]), axis=0)
-                    else:
-                        Q_term_Mat = np.append(Q_term_Mat, np.array([[1]]), axis=0)
 
-                #if Jind<8:
-                   #print (max_list)
-                   #print (ques1.shape)
                 counter2=0
                 for mind1 in min_indices:
                     if Doc_set[mind1] in IDF.keys():
@@ -191,8 +186,9 @@ def Word2Vec_score(Question, Q_term_list, IDF_Mat, Corpus, IDF, Justification_th
                 Document_score[Jind].append(max_score)
                 Alignment_score[Jind].append(total_alignment_score)
 
+        PMI_scores[Jind]=max_PMI
 
-    return Document_score, Alignment_score, BM25_scores
+    return Document_score, Alignment_score, BM25_scores, PMI_scores
 
 
 
@@ -207,11 +203,6 @@ def Ques_Emb(ques1, IDF):
            query_term.append(q_term)
 
     return Ques_Matrix, IDF_Mat, query_term
-
-
-
- #[]
-
 
 
 
@@ -291,26 +282,14 @@ def calculate_feature_matrix(Question_file, IDF):
 
         All_questions += [Q1_matrix, Q2_matrix, Q3_matrix, Q4_matrix]
         IDF_Mat += [IDF_Mat1, IDF_Mat2, IDF_Mat3, IDF_Mat4]
-        Q_terms_list += [q_term1, q_term2, q_term3, q_term4]
+        Q_terms_list.append(q_term1)
+        Q_terms_list.append(q_term2)
+        Q_terms_list.append(q_term3)
+        Q_terms_list.append(q_term4)
+
     return All_questions, Q_terms_list, IDF_Mat, Correct_ans
 
 
-
-def return_gold_ans(Question_file):
-    Correct_ans = []#[]
-    counter=0
-    for line1 in Question_file:
-        counter += 1
-        if counter>2500:
-           break
-        if counter<1:
-           pass
-        else:
-            line1 = line1.strip()
-            cols = line1.split("\t")
-            Correct_ans.append(cols[3])
-
-    return Correct_ans
 
 ################################################################# train_files
 
@@ -326,11 +305,14 @@ for line3 in PMI_values:
 file1=open("structured_kerasInput_train_bestIR_08j5.tsv","r")
 Question_file = open('training_set.tsv', 'r')
 All_questions, Q_terms_list, IDF_Mat, Correct_ans = calculate_feature_matrix(Question_file, IDF)
-J_Threshold=5
-Score_matrix, Alignment_scores_train, BM25_scores_train = Word2Vec_score(All_questions, Q_terms_list, IDF_Mat,  file1, IDF, J_Threshold)
 
-print (len(Alignment_scores_train),len(BM25_scores_train))
-print ("Ques level length of features are",len(Alignment_scores_train[0]),len(BM25_scores_train[0]))
+# print ("size of Q_terms_lis is: ", len(Q_terms_list), len(Q_terms_list[0]))
+
+J_Threshold=5
+Score_matrix, Alignment_scores_train, BM25_scores_train, PMI_train = Word2Vec_score(All_questions, Q_terms_list, PMI_vals, IDF_Mat,  file1, IDF, J_Threshold)
+
+print ("len of PMI train ", len(PMI_train), len(PMI_train[0]), len(PMI_train[1]), len(PMI_train[2]))
+print ("len of Alignment_scores train ", len(Score_matrix), len(Score_matrix[0]), len(Score_matrix[1]), len(Score_matrix[2]))
 
 data,labels=Preprpcess_NN_data(Score_matrix, Alignment_scores_train, BM25_scores_train, Correct_ans, J_Threshold).prepare_data()
 
@@ -346,7 +328,6 @@ for label in labels:
 
 Y=array(multiclass_label)
 data = array(data)
-print("length of training data is: ", len(data), len(Y))
 #######################################################
 ## DEV experiments
 #######################################################
@@ -375,12 +356,10 @@ file1=open("structured_kerasInput_dev_bestIR_08j5.tsv","r")
 Question_file_test = open('test_set.tsv', 'r')
 All_questions, Q_terms_list, IDF_Mat, Correct_ans = calculate_feature_matrix(Question_file_test, IDF_test)
 J_Threshold=5
-Score_matrix, Alignment_scores_test, BM25_scores_test = Word2Vec_score(All_questions, Q_terms_list, IDF_Mat,  file1, IDF_test, J_Threshold)
+Score_matrix, Alignment_scores_test, BM25_scores_test, PMI_test = Word2Vec_score(All_questions, Q_terms_list, PMI_vals, IDF_Mat,  file1, IDF_test, J_Threshold)
 
 
 data_test,labels_test=Preprpcess_NN_data(Score_matrix, Alignment_scores_test, BM25_scores_test, Correct_ans, J_Threshold).prepare_data()
-
-print("length of testing data is: ", len(data_test), len(labels_test))
 
 ## converting labels for multi-class Keras version
 multiclass_label_test = []
@@ -394,7 +373,6 @@ for label in labels_test:
 Y_test = array(multiclass_label_test)
 data_test = array(data_test)
 
-print("length of testing data is: ", len(data_test), len(Y_test))
 # print(data_test[0])
 # print(data_test[1])
 #######################################################
@@ -408,7 +386,6 @@ print("length of testing data is: ", len(data_test), len(Y_test))
 folds = 5
 interval = len(data) / float(folds)
 interval = math.floor(interval)
-print ("the interval is: ", interval)
 total_performance = []
 for i in range(folds):
 
